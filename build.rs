@@ -1,49 +1,71 @@
 use std::env;
 use std::path::Path;
+use std::process::Command;
 
-fn link_rdma_core(lib_name: &str, pkg_name: &str, version: &str, include_paths: &mut Vec<String>) {
-    let result: _ = pkg_config::Config::new()
-        .atleast_version(version)
-        .statik(false)
-        .probe(lib_name);
+// fn link_rdma_core(lib_name: &str, pkg_name: &str, version: &str, include_paths: &mut Vec<String>) {
+//     let result: _ = pkg_config::Config::new()
+//         .atleast_version(version)
+//         .statik(false)
+//         .probe(lib_name);
 
-    let lib = result.unwrap_or_else(|_| panic!("please install {pkg_name} {version})"));
-    println!("found {pkg_name} {}", lib.version);
+//     let lib = result.unwrap_or_else(|_| panic!("please install {pkg_name} {version})"));
+//     println!("found {pkg_name} {}", lib.version);
 
-    for path in lib.include_paths {
-        let path = path.to_str().expect("non-utf8 path");
-        include_paths.push(path.to_owned());
-    }
-}
+//     for path in lib.include_paths {
+//         let path = path.to_str().expect("non-utf8 path");
+//         include_paths.push(path.to_owned());
+//     }
+// }
 
 fn main() {
-    let mut include_paths: Vec<String> = Vec::new();
 
-    {
-        let lib_name = "libibverbs";
-        let pkg_name = "libibverbs-dev";
-        let version = "1.8.28";
-        link_rdma_core(lib_name, pkg_name, version, &mut include_paths);
+    // {
+    //     let lib_name = "libibverbs";
+    //     let pkg_name = "libibverbs-dev";
+    //     let version = "1.8.28";
+    //     link_rdma_core(lib_name, pkg_name, version, &mut include_paths);
+    // }
+
+    // {
+    //     let lib_name = "librdmacm";
+    //     let pkg_name = "librdmacm-dev";
+    //     let version = "1.2.28";
+    //     link_rdma_core(lib_name, pkg_name, version, &mut include_paths);
+    // }
+
+    // {
+    //     include_paths.sort_unstable();
+    //     include_paths.dedup_by(|x, first| x == first);
+    //     include_paths.push("/usr/include".into());
+    //     println!("include paths: {:?}", include_paths);
+    // }
+
+    println!("cargo:include=vendor/rdma-core/build/include");
+    println!("cargo:rustc-link-search=native=vendor/rdma-core/build/lib");
+    println!("cargo:rustc-link-lib=ibverbs");
+
+    // initialize and update submodules
+    if Path::new(".git").is_dir() {
+        Command::new("git")
+            .args(&["submodule", "update", "--init"])
+            .status()
+            .expect("Failed to update submodules.");
+    } else {
+        assert!(
+            Path::new("vendor/rdma-core").is_dir(),
+            "vendor source not included"
+        );
     }
 
-    {
-        let lib_name = "librdmacm";
-        let pkg_name = "librdmacm-dev";
-        let version = "1.2.28";
-        link_rdma_core(lib_name, pkg_name, version, &mut include_paths);
-    }
-
-    {
-        include_paths.sort_unstable();
-        include_paths.dedup_by(|x, first| x == first);
-        include_paths.push("/usr/include".into());
-        println!("include paths: {:?}", include_paths);
-    }
-
-    let include_args = include_paths.iter().map(|p| format!("-I{}", p));
+    // build vendor/rdma-core
+    Command::new("bash")
+        .current_dir("vendor/rdma-core/")
+        .args(&["build.sh"])
+        .status()
+        .expect("Failed to build vendor/rdma-core using build.sh");
 
     let bindings = bindgen::Builder::default()
-        .clang_args(include_args)
+        .clang_arg("-Ivendor/rdma-core/build/include/")
         .header("src/bindings.h")
         .allowlist_function("ibv_.*")
         .allowlist_type("ibv_.*")
